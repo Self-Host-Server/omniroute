@@ -1,0 +1,109 @@
+# ──────────────────────────────────────────────────────────────────────
+#  OmniRoute — Docker Compose (base profile: no bundled CLI tools)
+# ──────────────────────────────────────────────────────────────────────
+#  Adapted from the official docker-compose.yml (diegosouzapw/OmniRoute) —
+#  uses the prebuilt Docker Hub image instead of building from source,
+#  and drops the optional profiles/sidecars (web, cli, host, memory,
+#  bifrost, cliproxyapi, codex-app-server) this setup doesn't need.
+#
+#  Copy .env.example to .env, fill in real values, then:
+#    docker compose up -d
+#
+#  Other machines connect to THIS server instead of running their own:
+#    omniroute connect http://<this-host-ip>:20128 --api-key <key>
+#    omniroute setup-claude
+#    omniroute launch --profile <name>
+#
+#  IMPORTANT, verified against upstream source (not just its docs): the
+#  dashboard port (20128) is reachable on all interfaces by design — the
+#  image bakes HOSTNAME=0.0.0.0 in at build time (Dockerfile). The API
+#  (20129) and live-WS (20132) ports are NOT baked that way — their
+#  listen address comes from the API_HOST/LIVE_WS_HOST env vars, which
+#  default to 127.0.0.1 (src/lib/apiBridgeServer.ts:
+#  `process.env.API_HOST || "127.0.0.1"`, then `server.listen(port, host)`).
+#  Publishing those container ports on 0.0.0.0 (via APP_BIND_HOST below)
+#  does NOT make them reachable unless API_HOST/LIVE_WS_HOST are ALSO
+#  widened — otherwise the process inside the container only accepts
+#  connections arriving on its own loopback, and a remote `omniroute
+#  connect` (which needs the API port, not just the dashboard) would
+#  silently fail even though the dashboard loads fine. .env.example sets
+#  both explicitly for this reason. Upstream keeps them at 127.0.0.1 by
+#  default deliberately (regression-tested, see their issue #12568) —
+#  safe to widen here specifically because REQUIRE_API_KEY=true is also
+#  set below, which is the exact condition their own boot-time guard
+#  (nonLoopbackApiKeyGuard.ts) checks for before warning.
+# ──────────────────────────────────────────────────────────────────────
+
+services:
+  redis:
+    # Backs OmniRoute's rate limiter/cache. Required — not optional.
+    image: docker.io/library/redis:8.6.5-alpine
+    container_name: omniroute-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    # No `ports:` published on purpose — this Redis has no requirepass,
+    # and the app reaches it over the compose network (redis:6379). Only
+    # add a published port + REDIS_BIND_HOST if you need host-side
+    # redis-cli access, and pair it with a real password if you do.
+
+  omniroute:
+    image: docker.io/diegosouzapw/omniroute:${OMNIROUTE_VERSION:-3.8.50}
+    container_name: omniroute
+    restart: unless-stopped
+    stop_grace_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+      - PORT=${PORT:-20128}
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-20128}
+      - API_PORT=${API_PORT:-20129}
+      # Container-internal listen address for the API server — separate
+      # from APP_BIND_HOST below (which only controls the Docker host-side
+      # publish). Must be widened together with APP_BIND_HOST for the API
+      # to actually be reachable from other machines. See the file header.
+      - API_HOST=${API_HOST:-127.0.0.1}
+      - LIVE_WS_PORT=${LIVE_WS_PORT:-20132}
+      - LIVE_WS_HOST=${LIVE_WS_HOST:-127.0.0.1}
+      - LIVE_WS_ALLOWED_ORIGINS=${LIVE_WS_ALLOWED_ORIGINS:-http://localhost:20128,http://127.0.0.1:20128}
+      - REDIS_URL=redis://redis:6379
+      - REQUIRE_API_KEY=${REQUIRE_API_KEY:-true}
+      # Coding-agent workloads need a much bigger heap than the 1024 MB
+      # image default — see the project's Docker guide (~10g container
+      # limit needed to match an 8192 MB heap; native buffers sit outside
+      # V8's own memory accounting).
+      - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-8192}
+      - NODE_OPTIONS=--max-old-space-size=${OMNIROUTE_MEMORY_MB:-8192}
+    ports:
+      # APP_BIND_HOST defaults to 0.0.0.0 here (unlike upstream's own
+      # 127.0.0.1 default) because the whole point of this deployment is
+      # multiple machines reaching it — that's only safe BECAUSE
+      # REQUIRE_API_KEY=true above. Do not flip that to false while this
+      # stays 0.0.0.0.
+      - "${APP_BIND_HOST:-0.0.0.0}:${DASHBOARD_PORT:-20128}:${DASHBOARD_PORT:-20128}"
+      - "${APP_BIND_HOST:-0.0.0.0}:${API_PORT:-20129}:${API_PORT:-20129}"
+      - "${APP_BIND_HOST:-0.0.0.0}:${LIVE_WS_PORT:-20132}:${LIVE_WS_PORT:-20132}"
+    volumes:
+      - omniroute-data:/app/data
+    mem_limit: ${OMNIROUTE_CONTAINER_MEM:-10g}
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  redis-data:
+    name: omniroute-redis-data
+  omniroute-data:
+    name: omniroute-data
