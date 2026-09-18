@@ -24,9 +24,40 @@ This runs the gateway centrally on one machine; other machines connect to it (`o
 
 See the comments in [`compose.yml`](compose.yml) for the full verified reasoning — none of it is copied from upstream's own `docker-compose.yml` blind, since that file builds from source and includes several optional profiles/sidecars (web, cli, host, memory, bifrost, cliproxyapi, codex-app-server) this deployment doesn't use.
 
+## Obsidian
+
+The `obsidian` service (linuxserver.io image) hosts the vault OmniRoute reads and writes through the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin. Three settings have to be changed from their defaults before OmniRoute can reach it — all three, or the connection fails identically each time:
+
+1. **In the plugin (Obsidian → Settings → Local REST API):**
+   - Turn on **Enable HTTP server**. Only the HTTPS listener on `27124` runs out of the box, and pointing OmniRoute at `27124` is not a workaround — its settings endpoint rejects that port explicitly, since the REST API it speaks is the plain-HTTP one on `27123`.
+   - Set the **binding host** to `0.0.0.0`. At the default `127.0.0.1` the plugin only accepts connections arriving on the `obsidian` container's own loopback, so a request from the `omniroute` container is refused no matter what hostname it uses.
+   - Copy the plugin's API key.
+
+2. **In OmniRoute (dashboard → endpoint → Obsidian, or `POST /api/settings/obsidian` with `{"token": "...", "baseUrl": "..."}`):** paste that API key and set the base URL to
+
+   ```text
+   http://obsidian:27123
+   ```
+
+   **Not** `http://127.0.0.1:27123`, which is what upstream defaults to (`DEFAULT_OBSIDIAN_BASE_URL` in `src/lib/obsidian/api.ts`). Inside the `omniroute` container that loopback is that container's own — the plugin is in a different container — so the default produces:
+
+   ```text
+   [ProxyFetch] ... connect ECONNREFUSED 127.0.0.1:27123
+   ```
+
+   The `27123:27123` mapping in `compose.yml` publishes the port on the **host**, which does nothing for container-to-container traffic. Both services share the compose file's default network, so the service name `obsidian` resolves by DNS and is the address to use.
+
+This base URL is **not** configurable by env var — OmniRoute stores it in its own settings store (`src/lib/db/obsidian.ts`, namespace `obsidian`, key `base_url`), which lives in the `omniroute-data` volume, so it survives restarts but has to be set once through the dashboard or API. `.env.example` documents this where the variable would otherwise go.
+
+Verify from inside the gateway container:
+
+```bash
+docker exec omniroute node -e "fetch('http://obsidian:27123/').then(r=>console.log(r.status)).catch(e=>console.log('FAIL',e.cause?.code))"
+```
+
 ## What's included
 
-- **`compose.yml`** — the OmniRoute stack (`redis`, `omniroute`), configured via env vars from `.env`.
+- **`compose.yml`** — the OmniRoute stack (`redis`, `omniroute`, `obsidian`), configured via env vars from `.env`.
 - **`environment.yml` / `requirements.txt`** — conda environment (Python, pip, `gh`) with Python deps installed via pip.
 - **`pyproject.toml`** — [tox](https://tox.wiki) environments for linting and formatting:
   - `lint` — `ruff check`
