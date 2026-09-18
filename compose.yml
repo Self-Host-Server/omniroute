@@ -94,6 +94,38 @@ services:
       - "${APP_BIND_HOST:-0.0.0.0}:${LIVE_WS_PORT:-20132}:${LIVE_WS_PORT:-20132}"
     volumes:
       - omniroute-data:/app/data
+      # The Obsidian vault, mounted out of the obsidian service's own volume.
+      #
+      # OmniRoute's "vault path" setting is checked with fs.existsSync() INSIDE
+      # THIS container (src/lib/obsidianSync.ts: enableObsidianVaultSync), not
+      # over the REST API. So a path that only exists in the obsidian container
+      # — e.g. /config/Desktop/Omniroute — is rejected with "Vault directory
+      # not found", no matter that the REST API integration is working. This
+      # mount is what lets the setting accept /vault.
+      #
+      # `subpath` scopes the mount to the vault directory itself. Do NOT mount
+      # the whole obsidian-config volume: its root also holds
+      # .obsidian/plugins/obsidian-local-rest-api/data.json — the plugin API
+      # key — and the WebDAV service described below serves the vault root to
+      # anyone holding its Basic credentials.
+      #
+      # /vault deliberately sits outside /app/data: upstream rejects a vault
+      # that is, contains, or lives inside the data dir, which holds
+      # JWT_SECRET, STORAGE_ENCRYPTION_KEY and storage.sqlite (GHSA-7pq4).
+      #
+      # Remove this mount if you do not want WebDAV. The vault path is ONLY
+      # settable via POST /api/settings/obsidian/webdav, which in the same call
+      # switches on a WebDAV file server at /api/v1/webdav on the dashboard
+      # port (20128 — published on 0.0.0.0 above). That handler runs ahead of
+      # Next.js, outside its authz pipeline, so the generated Basic
+      # username/password is the only thing gating vault read AND write from
+      # the LAN. Nothing else in OmniRoute reads this setting: notes, context
+      # and the memory backend all go over the Local REST API instead.
+      - type: volume
+        source: obsidian-config
+        target: /vault
+        volume:
+          subpath: Desktop/Omniroute
     mem_limit: ${OMNIROUTE_CONTAINER_MEM:-10g}
     healthcheck:
       test: ["CMD", "node", "healthcheck.mjs"]
