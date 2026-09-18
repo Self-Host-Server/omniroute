@@ -102,24 +102,24 @@ services:
       retries: 3
       start_period: 15s
 
-    obsidian:
-      image: lscr.io/linuxserver/obsidian:latest
-      container_name: obsidian
-      restart: unless-stopped
-      security_opt:
-        - seccomp:unconfined
-      shm_size: "1gb"
-      environment:
-        - PUID=1000
-        - PGID=1000
-        - TZ=America/New_York
-      volumes:
-        - obsidian-config:/config # your vault lives here, persists across restarts
-      ports:
-        - "3000:3000" # web GUI (HTTP)
-        - "3001:3001" # web GUI (HTTPS)
-        - "27123:27123" # Local REST API plugin — needed for OmniRoute to reach it
-        - "27124:27124" # Local REST API plugin (HTTPS variant)
+  obsidian:
+    image: lscr.io/linuxserver/obsidian:latest
+    container_name: obsidian
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    shm_size: "1gb"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    volumes:
+      - obsidian-config:/config # your vault lives here, persists across restarts
+    ports:
+      - "3000:3000" # web GUI (HTTP)
+      - "3001:3001" # web GUI (HTTPS)
+      - "27123:27123" # Local REST API plugin — needed for OmniRoute to reach it
+      - "27124:27124" # Local REST API plugin (HTTPS variant)
 
 volumes:
   obsidian-config:
