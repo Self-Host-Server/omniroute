@@ -155,15 +155,14 @@ services:
     ports:
       - "3000:3000" # web GUI (HTTP)
       - "3001:3001" # web GUI (HTTPS)
-      # Both of these stay dead until the plugin's binding host is 0.0.0.0
-      # (see above) — and OmniRoute never needs them, since it reaches the
-      # plugin as obsidian:27123 over the compose network. They exist only
-      # for host-side/manual access. Once the binding host IS widened they
-      # become live on every interface, putting the vault's REST API on the
-      # LAN behind nothing but the plugin API key — delete both lines if you
-      # don't want that; the gateway keeps working without them.
-      - "27123:27123" # Local REST API plugin (HTTP) — host-side access only
-      - "27124:27124" # Local REST API plugin (HTTPS variant)
+      # The Local REST API ports (27123 HTTP / 27124 HTTPS) are deliberately
+      # NOT published. OmniRoute reaches the plugin as obsidian:27123 over
+      # the compose network, so publishing them buys nothing it needs — and
+      # once the plugin's binding host is 0.0.0.0 (required, see above), a
+      # publish would put the vault's whole REST API on every interface
+      # behind nothing but the plugin API key. Same reasoning applied to
+      # redis above. Add them back only if you want to reach the vault API
+      # from other machines, and know that key is the only thing gating it.
 
 volumes:
   obsidian-config:

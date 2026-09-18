@@ -33,7 +33,7 @@ The `obsidian` service (linuxserver.io image) hosts the vault OmniRoute reads an
    - Set the **binding host** to `0.0.0.0`. Until you set one the plugin stores no binding host at all, and both listeners bind to the `obsidian` container's own loopback — so a request from the `omniroute` container is refused no matter what hostname it uses.
    - Copy the plugin's API key.
 
-   These two toggles are independent, and the second is the one that usually bites: the HTTP server can be **on** — `27123` genuinely listening — and still be reachable from nowhere but inside that container. A stuck binding host also kills the `27123`/`27124` port publishes in `compose.yml`, so `curl` from the Docker host itself hangs too. Check what the listeners are actually bound to rather than trusting the toggle:
+   These two toggles are independent, and the second is the one that usually bites: the HTTP server can be **on** — `27123` genuinely listening — and still be reachable from nowhere but inside that container. Check what the listeners are actually bound to rather than trusting the toggle:
 
    ```bash
    docker exec obsidian ss -lnt
@@ -53,7 +53,7 @@ The `obsidian` service (linuxserver.io image) hosts the vault OmniRoute reads an
    [ProxyFetch] ... connect ECONNREFUSED 127.0.0.1:27123
    ```
 
-   The `27123:27123` mapping in `compose.yml` publishes the port on the **host**, which does nothing for container-to-container traffic. Both services share the compose file's default network, so the service name `obsidian` resolves by DNS and is the address to use.
+   `compose.yml` deliberately publishes no host port for `27123`/`27124` — publishing one would do nothing for container-to-container traffic anyway, and once the binding host is `0.0.0.0` it would expose the vault's REST API on every interface behind only the plugin API key. Both services share the compose file's default network, so the service name `obsidian` resolves by DNS and is the address to use.
 
    If you use the API rather than the dashboard, **send `baseUrl` in the same request as the token**. Upstream only persists the URL when that field is present in the body (`setObsidianBaseUrl` is called under `if (parsed.data.baseUrl)`); POST the token alone and the route validates against the _existing_ stored value — still the `127.0.0.1` default — then reports `connected: true` without having changed anything.
 
