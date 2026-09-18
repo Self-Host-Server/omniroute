@@ -103,6 +103,34 @@ services:
       start_period: 15s
 
   obsidian:
+    # The vault OmniRoute reads and writes through the Local REST API plugin.
+    #
+    # IMPORTANT: OmniRoute must be pointed at http://obsidian:27123, NOT
+    # http://127.0.0.1:27123. Upstream defaults to the latter
+    # (src/lib/obsidian/api.ts: `DEFAULT_OBSIDIAN_BASE_URL =
+    # "http://127.0.0.1:27123"`), and inside the omniroute container that
+    # loopback is that container's OWN — the plugin runs in this separate
+    # container, so the request is refused:
+    #   [ProxyFetch] ... connect ECONNREFUSED 127.0.0.1:27123
+    # The `27123:27123` publish below only exposes the port on the compose
+    # HOST; it does not put it on the omniroute container's loopback. Both
+    # services share this file's default network, so the service name
+    # `obsidian` resolves over the compose DNS and is the address to use.
+    #
+    # That base URL is NOT settable by env var — it lives in OmniRoute's own
+    # settings store (src/lib/db/obsidian.ts, namespace "obsidian", key
+    # "base_url"), written via the dashboard or POST /api/settings/obsidian.
+    # See the Obsidian section of the README.
+    #
+    # Two plugin-side settings are also required, or `obsidian:27123` fails
+    # exactly the same way:
+    #   - "Enable HTTP server" — off by default; only the HTTPS listener on
+    #     27124 runs out of the box. Pointing OmniRoute at 27124 instead is
+    #     not an option: its settings route rejects that port explicitly.
+    #   - Binding host — set it to 0.0.0.0. Left at 127.0.0.1, the plugin
+    #     only accepts connections arriving on THIS container's loopback, so
+    #     a request from the omniroute container is refused even once the
+    #     hostname is right.
     image: lscr.io/linuxserver/obsidian:latest
     container_name: obsidian
     restart: unless-stopped
@@ -118,7 +146,7 @@ services:
     ports:
       - "3000:3000" # web GUI (HTTP)
       - "3001:3001" # web GUI (HTTPS)
-      - "27123:27123" # Local REST API plugin — needed for OmniRoute to reach it
+      - "27123:27123" # Local REST API plugin (HTTP) — host-side access only; OmniRoute itself uses obsidian:27123 over the compose network
       - "27124:27124" # Local REST API plugin (HTTPS variant)
 
 volumes:
