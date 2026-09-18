@@ -89,7 +89,9 @@ Make these edits with Obsidian stopped (`docker stop obsidian`). A running Obsid
 
 ### Vault path and WebDAV
 
-The **vault path** setting is not part of the REST API integration, and leaving it empty costs nothing. Only `src/lib/obsidianSync.ts` reads it (the settings route just echoes it back for display); notes, context and the memory backend all go over the Local REST API, so the integration is complete with `vaultPath: null`.
+The **vault path** setting is not part of the REST API integration, and leaving it empty costs nothing. Only `src/lib/obsidianSync.ts` reads it (the settings route just echoes it back for display), so the integration is complete with `vaultPath: null`. Notes and context go over the Local REST API.
+
+OmniRoute's memory subsystem does not touch the vault at all, whatever upstream's `MEMORY.md` says. It ships two Obsidian memory backends — `src/lib/memory/obsidianBackend.ts` (which writes Markdown straight to the filesystem, not over the REST API) and a REST preset in `KNOWN_BACKENDS` — and registers neither: `src/lib/memory/index.ts` registers only `sqliteBackend`. Naming an unregistered backend does not fail loudly either; `configure()` throws, `initMemoryBackends()` swallows it as a `log.warn`, and memory silently stays on SQLite. In the shipped image the dead backend is tree-shaken out of the bundle entirely. Memory is also off by default since v3.8.30, and enabling it injects up to `maxTokens` (~2k) into every request.
 
 A path like `/config/Desktop/Omniroute` is rejected because it is checked with `fs.existsSync()` inside the **omniroute** container, where it does not exist — it belongs to the `obsidian` container:
 

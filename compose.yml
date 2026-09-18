@@ -119,8 +119,10 @@ services:
       # port (20128 — published on 0.0.0.0 above). That handler runs ahead of
       # Next.js, outside its authz pipeline, so the generated Basic
       # username/password is the only thing gating vault read AND write from
-      # the LAN. Nothing else in OmniRoute reads this setting: notes, context
-      # and the memory backend all go over the Local REST API instead.
+      # the LAN. Nothing else in OmniRoute reads this setting: notes and
+      # context go over the Local REST API, and the memory subsystem never
+      # touches the vault — both of its Obsidian backends are dead code that
+      # nothing registers. See the README.
       - type: volume
         source: obsidian-config
         target: /vault
