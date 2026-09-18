@@ -68,6 +68,39 @@ docker exec omniroute node -e "fetch('http://obsidian:27123/').then(r=>console.l
 
 A resolving hostname plus `FAIL ECONNREFUSED` means the network is fine and the binding host is still loopback — step 1, not step 2. `ECONNREFUSED 127.0.0.1:27123` in the gateway's own logs means the opposite: the plugin may be reachable, but OmniRoute never got told the URL, so it is still using `DEFAULT_OBSIDIAN_BASE_URL`.
 
+### More than one vault in the container
+
+The Local REST API plugin is per-vault, and every vault defaults to the same ports (`27123` HTTP / `27124` HTTPS). If two vaults have the plugin enabled, they fight over those ports: whichever loads first binds them, the other fails with `EADDRINUSE` and never starts a server at all. `/config/.config/obsidian/obsidian.json` lists every vault Obsidian currently has open.
+
+This fails misleadingly. The port answers, so the network half looks healthy — but it is the _other_ vault answering, and its API key is a different one, so pasting the correct key for the vault you actually want gives:
+
+```text
+Token validation failed: invalid token
+```
+
+which reads like a bad key rather than a port collision. A `0.0.0.0` binding host makes it worse, not better: it claims the port on every interface and so beats a vault still sitting on `127.0.0.1`.
+
+Pick one arrangement:
+
+- **One vault exposed** — set the binding host on the vault you want, and disable the Local REST API plugin entirely in the other (remove it from `.obsidian/community-plugins.json`, or toggle it off in the GUI). Turning off just "Enable HTTP server" is not enough; `27124` still collides.
+- **Both exposed** — give each vault its own port pair (e.g. `27125`/`27126` for the second) and set the binding host on both. OmniRoute still only talks to one of them, since it stores a single base URL.
+
+Make these edits with Obsidian stopped (`docker stop obsidian`). A running Obsidian rewrites `data.json` from memory and will silently discard them.
+
+### Vault path and WebDAV
+
+The **vault path** setting is not part of the REST API integration, and leaving it empty costs nothing. Only `src/lib/obsidianSync.ts` reads it (the settings route just echoes it back for display); notes, context and the memory backend all go over the Local REST API, so the integration is complete with `vaultPath: null`.
+
+A path like `/config/Desktop/Omniroute` is rejected because it is checked with `fs.existsSync()` inside the **omniroute** container, where it does not exist — it belongs to the `obsidian` container:
+
+```text
+Vault directory not found: /config/Desktop/Omniroute
+```
+
+`compose.yml` mounts the vault into the gateway at `/vault` (a `subpath` mount off the `obsidian-config` volume, scoped so the plugin's API key stays out of reach). Use `/vault` — never the other container's path.
+
+Setting it has a side effect worth understanding first. The only route that writes it is `POST /api/settings/obsidian/webdav`, which in the same call switches on a WebDAV file server at `/api/v1/webdav` on the dashboard port and returns a generated Basic username/password. That handler runs ahead of Next.js and outside its authz pipeline (upstream tracks this as GHSA-7pq4-8pvv-rx7r), so those credentials are the only thing standing between the LAN and read/write access to the whole vault. `DELETE` on the same route turns it off again and clears the path.
+
 ## What's included
 
 - **`compose.yml`** — the OmniRoute stack (`redis`, `omniroute`, `obsidian`), configured via env vars from `.env`.
