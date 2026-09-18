@@ -127,10 +127,19 @@ services:
     #   - "Enable HTTP server" — off by default; only the HTTPS listener on
     #     27124 runs out of the box. Pointing OmniRoute at 27124 instead is
     #     not an option: its settings route rejects that port explicitly.
-    #   - Binding host — set it to 0.0.0.0. Left at 127.0.0.1, the plugin
-    #     only accepts connections arriving on THIS container's loopback, so
-    #     a request from the omniroute container is refused even once the
-    #     hostname is right.
+    #   - Binding host — set it to 0.0.0.0. The plugin stores no
+    #     `bindingHost` key at all until you set one, and while it is unset
+    #     BOTH listeners bind to this container's own loopback:
+    #       LISTEN 127.0.0.1:27123 / LISTEN 127.0.0.1:27124
+    #     That refuses the omniroute container even once the hostname is
+    #     right, AND it makes the port publishes below dead — a curl from
+    #     the compose host to 127.0.0.1:27123 gets no answer either. If the
+    #     published ports appear dead, this is why; it is not a Docker
+    #     networking problem.
+    #
+    # Enabling the HTTP server does NOT imply the binding host is fixed —
+    # they are independent, so 27123 can be listening (plugin toggle on)
+    # and still be unreachable from anywhere but inside this container.
     image: lscr.io/linuxserver/obsidian:latest
     container_name: obsidian
     restart: unless-stopped
@@ -146,7 +155,14 @@ services:
     ports:
       - "3000:3000" # web GUI (HTTP)
       - "3001:3001" # web GUI (HTTPS)
-      - "27123:27123" # Local REST API plugin (HTTP) — host-side access only; OmniRoute itself uses obsidian:27123 over the compose network
+      # Both of these stay dead until the plugin's binding host is 0.0.0.0
+      # (see above) — and OmniRoute never needs them, since it reaches the
+      # plugin as obsidian:27123 over the compose network. They exist only
+      # for host-side/manual access. Once the binding host IS widened they
+      # become live on every interface, putting the vault's REST API on the
+      # LAN behind nothing but the plugin API key — delete both lines if you
+      # don't want that; the gateway keeps working without them.
+      - "27123:27123" # Local REST API plugin (HTTP) — host-side access only
       - "27124:27124" # Local REST API plugin (HTTPS variant)
 
 volumes:
