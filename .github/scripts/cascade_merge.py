@@ -158,9 +158,14 @@ def main():
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
 
+    # checkout runs with persist-credentials: false, so `origin` carries no
+    # credentials - fetch and push both pass the authenticated URL explicitly
+    # rather than writing the token into .git/config.
+    push_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+
     run_check(["git", "config", "user.name", "github-actions[bot]"])
     run_check(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"])
-    run_check(["git", "fetch", "--all", "--prune"])
+    run_check(["git", "fetch", "--prune", push_url, "+refs/heads/*:refs/remotes/origin/*"])
 
     raw = run(["git", "branch", "-r", "--format=%(refname:short)"]).stdout.splitlines()
     branches = []
@@ -178,7 +183,6 @@ def main():
         return
 
     ensure_label(token, repo)
-    push_url = f"https://x-access-token:{token}@github.com/{repo}.git"
     trigger_sha = run(["git", "log", "-1", "--format=%H", f"origin/{source}"]).stdout.strip()
 
     for branch in branches:
